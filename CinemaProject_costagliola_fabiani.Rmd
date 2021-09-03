@@ -1,0 +1,759 @@
+---
+title: "Cinema Project - Conjoint Analysis"
+author: "Elena Costagliola & Dario Fabiani"
+date: "18/02/2021"
+output:
+  html_document: 
+    fig_caption: yes
+    fig_crop: no
+    highlight: haddock
+    keep_tex: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    df_print: paged
+  pdf_document: 
+    fig_caption: yes
+    fig_crop: no
+    highlight: haddock
+    keep_tex: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+```{r global options, include = FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+```{r Libraries}
+library(mlogit)
+library(MASS)
+library(lattice)
+library(corrplot)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+
+source("conj_functions.R")
+```
+
+# Introduction
+
+In recent years, major changes are taking place in the market with the increasing digitalization of its sectors. There are new ways of conceiving and enjoying cinema, mainly based on streaming.
+For years now, the cinema sector has been subjected to competition from new platforms, with decreasing earnings.
+Although there are those who argue that the comparison between streaming and cinema is unfounded, it is inevitable that the way of conceiving cinema should at least be brought up to date. The unparalleled cinema experience cannot disappear but, especially with the current pandemic, allowing cinemas to earn from streaming would be a way to reinvigorate the industry.
+
+For this reason we tried to think of a cinema offer in symbiosis with the streaming trend, which would allow the customer to choose cinema passes that include 4, 7 or 10 movies of the Commercial, Independent or Animation genres. The movies can be enjoyed both in theaters and in streaming in a fixed time slot, and are proposed with video quality proportional to the unit price of the pass.
+
+Hence, our *research question* is: "Which kind of pass can revive the cinema sector in this pandemic period?". 
+
+Starting from this perspective, we designed a survey with the aim of assessing which type of cinema pass would be most appealing.
+
+Our survey has 6 attributes, each attribute is divided into 3 levels: Number of movies, Type of movie, Time slot, Quality of the streaming, Quality of Cinema and Price; the variable Quality of the streaming, instead, ha only has only 2 levels. 
+
+The final survey consisted of 18 questions, which we divided between two different Google Forms distributed via QR codes, messages and social networks. The total number of people reached was 141. The experimental design used to develop the survey and the specific means used to collect the responses will be discussed in more detail in the section on data collection.
+
+Once we had all the responses, we wrote a python script to convert the output of the Google form into a long format readable for the packages of the Choice-based Conjoint analysis. We opted for this type of Conjoint analysis because it better mimics what the consumers actually do when they buy: choosing among alternatives is a more natural activity. 
+
+In the Data Analysis section we analyze the responses obtained. In particular, we manage the analysis firstly with an MNL model that do not consider the heterogeneity among the respondents. Then we fit three mixed MNL models to deal with heterogeneity. The first model assumes no correlation between variables, the second model assumes correlation between all variables and the third one assumes correlation only between variables with significant correlation. 
+We eased the interpretation of data computing **willingness-to-pay** and **preference shares**. With them we were able to identify the best average pass, the one that combines a high number of movie, a Commercial type and evening shows.
+In addition, we focus on studying the heterogeneity of attribute level distributions distinguishing homogeneous from heterogeneous distributions. In the latter we try, successfully, to identify niches. We opted for a careful interpretation, setting a threshold to 20% to assess there was a niche, and we found some potential niches of customers for the attribute level `3D` and `Animazione.` 
+
+Finally, we tried to identify a relationship between individual part worths and individual-level variables. Only the variable `età` seems the one to possibly tell a difference among the respondents heterogeneity, but we would probably need more data to assess it statistically. Hence, given the low representativeness of the data and the small number of observations, we were careful not to force the conclusions too far. Overall, despite our assumptions, the results proved to be not significant.
+
+
+# Data Collection
+
+In building our survey we were constrained by the huge number of combinations that our alternatives and levels could give. Therefore, to avoid a high dropout rate, we took advantage of the *orthogonal main-effect fractional factorial design*, which gave us a subset of the design that was enough to estimate the part-worth coefficients for the main effects.
+This design method is based on *orthogonality*: it avoids under or over representation since all the levels of attributes have the same frequency. However, the use of this method prevented us from assessing all the interaction effects.
+The alternative to this approach would have been the D-optimal of the Optimal design, which would have given us better results in term of accuracy, but we would have had to specify the a-priori distribution of  parameters. Since we had no a priori knowledge about the parameters, we opted for the fractional factorial design.
+
+This gave us 18 choice sets including a total of 54 product profiles to evaluate, which is quite a high number for a single respondent. Therefore, we decided to divide the choice sets into two surveys which we distributed via two Google forms.
+To construct the choice sets we used the *mix-and-match* method.
+
+The survey consists of 6 attributes with their respective levels, as follows:
+
+* Number of movies has 3 levels: 4, 7, 10. 
+* Type of movie has 3 levels as well: Commercial, Independent and Animation.
+* Time slot has 3 levels: morning (9-13), afternoon (15-19) and evening (21-24). 
+* Quality of the streaming has 2 levels: Full HD and 4K. 
+* Quality of the Cinema has 3 levels: Standard, IMAX and 3D. 
+* Price has 3 levels: 40, 60, 80.
+ 
+In addition, we also included some individual-level variables: Age, Job and Gender.
+
+Once the choice sets were generated through R, we entered them into readable tables^[We transposed the output of R in HTML format and improved the obtained tables using CSS.] and entered them into Google forms. 
+At this point, we started distributing it. Given our means, the **sample is not representative**: we could not select people randomly and hence the sample cannot properly represent the population. 
+First, we distributed it to the people in line waiting to enter the BUC library in Trento with a QR code to avoid any contact. Then, we shared it to our friends and colleagues by link, finally we created some Instagram Stories to share them on the social network. 
+Overall, we collected 141 responses.
+
+
+# Data Preparation
+
+In this part we are setting up the variables to perform the analysis.
+```{r}
+df <- read.csv('df_longformat.csv', sep = ',')
+df <- df %>% rename("età" = "etÃ.", "genere" = "sesso" )
+attach(df)
+
+str(df)
+```
+
+Here we convert the variables into factors and decide what will be the reference level for the analysis. Among the variables of the survey there are also Individual-level variables that we are going to use in the last part of the analysis.
+
+```{r}
+# alternative-specific variables with common coefficients
+df$tipo_film <- factor(df$tipo_film, levels = c('Commerciali','Indipendenti','Animazione'))
+df$h <- factor(df$h, levels= c('9-13','15-19','21-24'))
+df$qual_cine <- factor(df$qual_cine, levels= c('Standard','IMAX','3D'))
+df$qual_stream <- factor(df$qual_stream, levels = c('FullHD','4K'))
+df$profilo <- as.character(profilo)
+df$prezzo <- as.factor(prezzo)
+df$n_film <- as.factor(n_film)
+
+# individual level variables
+df$professione <- as.factor(professione)
+df$età <- as.factor(età)
+df$genere <- as.factor(genere)
+```
+
+## Preliminary check
+```{r}
+str(df)
+summary(df)
+```
+Due to the structure of the dataframe, the summary is difficult to interpret. On an individual-level perspective, we note that most of the respondents are students or employees between 22 and 30 years old. To assess whether attributes are properly represented we use `xtabs` which tells us how many times each level of certain attributes has been chosen.
+
+```{r}
+xtabs(scelta ~ n_film, data=df)
+xtabs(scelta ~ tipo_film, data=df)
+xtabs(scelta ~ h, data=df)
+xtabs(scelta ~ qual_stream, data=df)
+xtabs(scelta ~ qual_cine, data=df)
+xtabs(scelta ~ prezzo, data=df)
+xtabs(scelta ~ professione, data= df)
+xtabs(scelta ~ età, data= df)
+xtabs(scelta ~ genere, data= df)
+```
+As expected, given the choice of fractional factorial design, the attribute distributions are fairly balanced: no attribute is over or under represented.
+
+
+# Data Analysis
+
+Since the variable `scelta` (choice) is a qualitative multinomial response variable with three levels, we will fit the data using the multinomial logit (from now on MNL) model and the mixed MNL model. The former assumes there is not consumer heterogeneity, the latter instead deals with it assigning a unique coefficient to each respondent.
+
+Before applying the Multinomial logit model, we need to pass it through the `dfidx` function, since the observations are characterized by a combination of two indexes, in our case one nested (`resp.id` nests the `domanda` index) and one called `profilo`.
+
+Then we can apply the mlogit function from the package *mlogit*. The response variable is `scelta` and all the 6 covariates are used to fit the full model.
+```{r Fitting the full model (m1)}
+df.mlogit <- dfidx(df, idx = list(c("domanda", "resp.id"), "profilo"), drop.index=FALSE,shape = 'long',
+                   levels=c("1","2","3"))
+
+m1 <- mlogit(scelta ~ n_film + tipo_film + h + qual_cine + qual_stream + prezzo, data = df.mlogit)
+summary(m1)
+```
+Despite part worths are on a logit (and so non intuitive) scale, it is possible to have an idea of the overall consumers preference for each attribute level compared to its reference level.
+In the fitted model almost all the attributes are statistically significant, except for some of the levels referring to video quality: `IMAX` and `4K`.
+We assume that these attributes are not significant since respondents did not evaluate the benefits of a higher video quality, probably because they are not familiar with these movies formats.
+Surprisingly, `3D` results significant with a negative estimated average part worth, suggesting that consumers prefer standard quality when choosing a movie pass profile and underlying its lack of popularity nowadays.
+
+On the other hand, the attributes `h21-24` and `prezzo80` show the highest part worths in terms of order of magnitude. Indeed, respondents show a clear and strong preference for the time slot `h21-24` over the level `h9-13`. Similarly, there is a greater tendency to prefer an afternoon time slot than a morning one.
+As expected, the part worths referring to the attribute `prezzo80` is negative, suggesting the consumers' attitude to prefer cheaper cinema passes. Indeed, also the level `prezzo60` has a smaller but still negative coefficient.
+
+With regard to movie genres the part worths indicate that, on average, there is a preference for commercial movies. The coefficient of animation movies is noteworthy as negative and quite high. It might be interesting to observe whether there is a niche of consumers interested in this kind of movie. As far as independent films are concerned, on the other hand, the low significance of the part worth will lately force us to be more cautious in our conclusions.
+
+As expected, consumers preferred profiles containing a higher number of movies supporting the thesis that consumers would choose services that offer the most at the minimum price.
+
+The fact that intercepts are not significant allows us to exclude the hypothesis that respondents made their choice based on the position of the alternatives.
+Therefore, we can try to get more precise estimates (gaining degrees of freedom) and to improve the model by fitting a *restricted model* without the intercepts (asc).
+
+To assess the goodness of fit of models we used the *Likelihood ratio test* and, since the model is nested, the *Wald test*.
+
+```{r Fitting the restricted model without intercepts (m2)}
+m2 <- mlogit(scelta ~ n_film + tipo_film + h + qual_cine + qual_stream + prezzo |-1, data = df.mlogit)
+summary(m2)
+
+lrtest(m1,m2)
+waldtest(m1,m2)
+```
+Both tests do not provide enough evidence to reject the null hypothesis, thus we can state that the restricted model is adequate to model the data. Therefore, the alternative specific constants are not significant and can be excluded. 
+
+When commenting part worths of the full model we have highlighted the difficulty of their interpretation. This can be eased by calculating the willingness to pay and preference shares.
+
+## Willingness to pay
+To compute the willingness to pay, we need to convert price from factor to *quantitative* value. As a side effect, this conversion will also allow to gain degrees of freedom and to reduce standard errors.
+
+```{r Fitting the restricted model m2 with quantitative price (m3)}
+m3 <- mlogit(scelta ~ n_film + tipo_film + h + qual_cine + qual_stream + as.numeric(as.character(prezzo)) |-1, data = df.mlogit)
+summary(m3)
+```
+In this case we cannot apply a *Wald test*, since the models are not nested as in the previous case. Therefore, we test the goodness of fit of the new model using the *Likelihood ratio test*.
+```{r}
+lrtest(m2,m3)
+```
+Again, there is not enough evidence to reject the null hypothesis. Hence, we can use the model with price as quantitative and compute the *Willingness-to-pay* for the model parameters.
+```{r Willingness to pay}
+coef(m3)
+
+prezzo_qnt <- (coef(m3)["as.numeric(as.character(prezzo))"])
+
+WTP_df <- data.frame( "WTP"= c(coef(m3)["n_film7"]/prezzo_qnt,
+                              coef(m3)["n_film10"]/prezzo_qnt,
+                              coef(m3)["tipo_filmIndipendenti"]/prezzo_qnt,
+                              coef(m3)["tipo_filmAnimazione"]/prezzo_qnt,
+                              coef(m3)["h15-19"]/prezzo_qnt,
+                              coef(m3)["h21-24"]/prezzo_qnt,
+                              coef(m3)["qual_cineIMAX"]/prezzo_qnt,
+                              coef(m3)["qual_cine3D"]/prezzo_qnt,
+                              coef(m3)["qual_stream4K"]/prezzo_qnt))
+WTP_df
+```
+
+The results of the ratios give an idea (based on the survey data) of how much respondents would be willing to pay to be indifferent between the attribute level and the reference one. 
+The most impressive values is represented by the level `h21-24`. On average, indeed, to make respondents indifferent between a morning and an evening pass the price would have to be reduced by 64€. This means that if a cinema wanted to increase the sale of morning passes, it would have to reduce the average price by more than 64€. 
+Similarly, the average price of the pass with commercial movies would have to be at least 27€ higher to sell a pass containing animation movies. Thus a respondent would be willing to pay 27€ more to see a commercial movie over animation. 
+It is worth of notice that respondents would pay from almost 17€ to 19€ less if they have to choose between 4 movies and 7 or 10.
+Moreover they would pay 12€ more to be indifferent between standard and 3D movie formats.
+
+## Simulate Preference Shares
+Given the results above, we tried to evaluate which profiles would be the most preferable.  Thus we selected 6 reasonable and economically viable product profiles (2 for each type of movie) and use them as a simulation of a market environment. This allowed us to compute *preference shares*.
+
+```{r Preference Shares - fixed effects MNL model}
+attributes <- list(n_film=names(table(df.mlogit$n_film)),
+                   tipo_film=names(table(df.mlogit$tipo_film)),
+                   h=names(table(df.mlogit$h)),
+                   qual_stream=names(table(df.mlogit$qual_stream)),
+                   qual_cine=names(table(df.mlogit$qual_cine)),
+                   prezzo=names(table(df.mlogit$prezzo)))
+
+# all possible designs
+allDesign <- expand.grid(attributes)
+
+# choice of a subset of designs
+(new.data <- allDesign[c(344,307, 14,429,188,7),])
+
+# predictions
+predict.mnl(m2, new.data)
+```
+We unsurprisingly found out that the most preferred profiles include more movies, in the evening time slot. As seen above, quality of video does not significantly affect the choice. It is worth of noting that profiles would be choose more than the 24% of the time despite the high price.
+
+Moreover the profile containing 7 independent movies presents a relatively high preference share despite it is an afternoon pass. 
+It is a noteworthing result since it would make it possible to spread the film programming over the afternoon for those people who prefer this kind of movie. However, as mentioned above, it is important not to give much weight to these results due to the low significance of the level `tipo_filmIndipendenti`. 
+
+```{r Sensitivity chart}
+# preparing data
+model <-m3
+data <- new.data
+model.matrix(update(model$formula, 0 ~ .), data = data)[,-1]
+model$formula
+update(model$formula, 0 ~ .)
+data
+
+# setting sensitivity chart
+base.data <- new.data[1,]
+competitor.data <- new.data[-1,]
+tradeoff <- sensitivity.mnl(m2, attributes, base.data, competitor.data)
+```
+
+```{r Plotting sensitivity chart, fig.pos="H", include = T, caption="*Sensitivity chart.*"}
+# plotting
+lev_order <- c("4","7","10","Commerciali","Indipendenti","Animazione",
+               "9-13","15-19","21-24","Standard","IMAX","3D","FullHD","4K","40","60","80")
+ggplot(data=tradeoff, aes(x=factor(level, level = lev_order), y=increase)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  labs(x = "", y = "Change in Share for the Planned Product Designs") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), # rotate x ticks
+        text = element_text(family = "sans"), # font
+        panel.grid.major.y = element_line(colour = "grey80", linetype="dashed", size = 0.01)) +
+  geom_hline(yintercept = 0, colour = "grey80") # horizontal line 0
+```
+
+
+
+From the sensitivity chart we have a clear understanding of the preferences among the attributes of the profile, and how changing a level of the attribute would lead to changes in the preference shares.
+Indeed, the graph shows the different impact that each attribute had on the consumer's final choice. We note that price is the attribute that had the greatest impact on the choice of cinema pass. This is followed by the time slot and the type of film. As expected, the quality of the video does not particularly influence the choice, yet there seems to be a discredit towards 3D films. This aspect would require further investigation. Similarly, the number of movies only marginally affects the choice.
+
+
+# Controlling for consumer Heterogeneity
+
+Since we have a dataset with multiple responses from each respondent, we can account for the heterogeneity of the respondents using the mixed MLN. It an MLN model which allows the Beta coefficient to vary according to a-priori distribution, in our case we picked a normal distribution. It treats the respondent-level varying coefficients as realizations of a random variables and allows to identify possible niches, as we will see later.
+```{r}
+m2.rpar <- rep("n", length=length(m2$coef)) #here we are using the normal distribution
+names(m2.rpar) <- names(m2$coef)
+m2.rpar
+```
+In this first part we compute a mixed MNL with covariances among random effects set to zero, thus `correlation=False` in the formula. 
+```{r Mixed MNL without correlations (m2.mixed)}
+m2.mixed <- mlogit(scelta ~ n_film + tipo_film + h + qual_cine + qual_stream + prezzo |-1,
+                   data = df.mlogit, 
+                   panel=TRUE, rpar = m2.rpar, correlation = FALSE)
+summary(m2.mixed)
+```
+
+The data fitted with the mixed MNL model show almost the same part worths as the MNL model. However, in this case the `tipo_filmIndipendenti` level is somewhat more significant than in the previous model. At first glance, there is not much heterogeneity. However, the variables to watch out for would seem to be: `tipo_filmIndipendenti`,`qual_cine3D` and `qual_stream4K`. They have a standard deviation that exceeds the mean.
+
+To better assess the level of heterogeneity of the respondents compared to the attributes levels we can obtain a visual summary of the distribution of random effects.
+
+We distinguish the plots in homogeneous and heterogeneous distributions of random effects. We use 20% as a threshold: if at least 20% of the respondents answered differently than the others, we consider that there is heterogeneity. 
+
+
+```{r Distribution of random effects (m2.mixed) - homogeneity, fig.pos="H",fig.cap="*Homogeneous distributions of random effects for the mixed MNL model with zero correlation.*"}
+plot(m2.mixed, par = c(1,2,4,5,6,10,11))
+```
+
+
+
+```{r Distribution of random effects (m2.mixed) - heterogeneity, fig.pos="H",fig.cap="*Heterogeneous distributions of random effects for the mixed MNL model with zero correlation.*"}
+plot(m2.mixed, par = c(3,7,8,9))
+```
+
+
+
+From the above plots we can recognize how there is no heterogeneity in the distributions of the **number of movies**, the **time slot** and the **price** and `Animazione`.
+For the movie type `Indipendenti` it seems to be a clear distinction of respondents, almost split in two exact parts.
+For the distribution of `qual_cine` it seems to be niches in the `IMAX` and `3D` formats, however, we cannot assess that the `IMAX` quality is creating a niche since in the model the attribute level was not significant. On the contrary, in the case of `3D` (which is significant), the distribution of the random effects shows a very small 3rd quarter. This could be explained in two ways: (1) there is a real niche of customer that prefer 3D, (2) there were people that were forced to choose the alternative with the 3D quality of cinema since there were no desirable alternatives. To better understand this fact we would probably need more respondents and maybe change the survey design.
+T
+The distribution of `4K` follows the considerations of the `IMAX` quality: also in this case the attribute level was not significant.
+Lastly, the *price* distribution follows the expectations: no one seems to desire to spend more.
+
+Finally, we tried to update the model considering the covariances between attributes, putting `Correlation = True`. 
+```{r Mixed MNL with correlations (m2.mixed2)}
+m2.mixed2 <- update(m2.mixed, correlation = TRUE)
+summary(m2.mixed2)
+```
+Estimates of the attribute levels in this model are almost the same as in the previous models considered. The only difference is in the attribute level `tipo_filmIndipendenti` which is not significant. As before, we plot the distributions of random effects distinguishing between homogeneous and heterogeneous attribute levels. 
+
+```{r Distribution of random effects (m2.mixed2) - homogeneity, fig.pos="H",fig.cap="*Homogeneous distributions of random effects for the mixed MNL model with correlation.*"}
+plot(m2.mixed2, par = c(1,2,6))
+```
+
+
+
+```{r Distribution of random effects (m2.mixed2) - heterogeneity, fig.pos="H",fig.cap="*Heterogeneous distributions of random effects for the mixed MNL model with correlation.*"}
+plot(m2.mixed2, par = c(3,4,5,7,8,9,10,11))
+```
+
+
+
+Unsurprisingly, more emphasis is placed here on heterogeneity among respondents. In this model, in fact, we note greater heterogeneity in the attribute levels referring to **time slot**, those referring to **price** and, lastly, the attribute level referring to **animation** movies.  
+As far as *price* is concerned, it could be said that there are a slight but non negligible part of respondents who are less sparing in their choice of cinema passes. The preference of some of them for an *afternoon time* slot could be related to those respondents who prefer independent movies. Finally, a certain level of heterogeneity can also be seen in *animation* movies, with a niche of respondents that actually like this type of movies.
+No other important changes are notable in the other attribute levels.
+
+We can also obtain the standard errors of the correlations among random effects, and hence perform significance test.
+```{r Standard error of correlations}
+summary(vcov(m2.mixed2, what = "rpar", type = "cor"))
+```
+The plot above shows the significance test for the estimated correlation across the distribution of the parameters. We find that 7 correlations are significant at least at the level 0.001:
+
+ * cor.tipo_filmIndipendenti:tipo_filmAnimazione
+ * cor.n_film10:h15-19
+ * cor.h15-19:h21-24
+ * cor.n_film10:qual_cine3D
+ * cor.qual_cineIMAX:qual_cine3D 
+ * cor.qual_cineIMAX:qual_stream4K
+ * cor.prezzo60:prezzo80
+ 
+All these couples of attributes show a positive correlation ranging from 0.5 to 0.9.
+In particular, it is worth of notice that there is a significant and positive correlation between the highest quality of video, `qual_cineIMAX` and `qual_stream4K`.
+
+To easily have an idea of the strength of correlations between variables we can plot them.
+
+```{r Correlation plot, fig.pos="H",fig.cap="*Correlation plot of the mixed MNL model with correlation.*"}
+M <- cov2cor(cov.mlogit(m2.mixed2))
+
+colnames(M) <- c("n_film7", "n_film10", "tipo_film\nIndipendenti", "tipo_film\nAnimazione", 
+                 "h15-19", "h21-24", "qual_cine\nIMAX","qualcine_\n3D", "qual_stream\n4K", "prezzo60", "prezzo80")
+
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+
+corrplot(M, method="color", col=col(200), type="upper", order="hclust", addCoef.col = "black", # Add coefficient of correlation
+         number.cex = .7, tl.col="black", tl.cex=.7, tl.srt = 90,
+         diag=TRUE, mar=c(.8,0,.8,0) )
+
+```
+
+
+
+The plot above shows that movie `Indipendenti` is highly correlated with the 7 number of movies, while movie `Animazione` is highly negatively correlated with 10 number of movies. The explanation to this correlation may be found in the survey design. In the case of independent movies, our hypothesis is that people preferred to select the wished type of movie even if they would choose less movies. In the case of animation movies, we may assess that no one really like seeing them to the extent to have a 10 movie pass.
+Other relevant correlations may be the n_film10 with h15-19, which may indicate that even though the afternoon time is not quite appreciated, it is selected if a high number of movies is offered.
+
+
+Since these correlations make sense and show that respondents behaved rationally, here we restrict according to the above correlation to only random parameters with significant association.
+```{r Restricted mixed model with only significantly correlated params (m2.mixed3)}
+m2.mixed3 <- update(m2.mixed2, correlation = c("tipo_filmIndipendenti", "tipo_filmAnimazione", "n_film10", "h15-19",
+                                               "h21-24", 'qual_cine3D', 'qual_cineIMAX', 'qual_stream4K','prezzo60','prezzo80'))
+```
+The significant presence of random coefficients and their correlation can be further investigated using the Likelihood Ratio test between the models fitted so far.
+
+* Fixed effects vs. uncorrelated random effects
+
+```{r Test m2-m2.mixed}
+lrtest(m2, m2.mixed)
+```
+In this case we have enough sample evidence to reject the null hypothesis that the variances of the random effects are all equal to zero. For this reason we choose the model which considers the random effects since they are significant in explaining consumer preferences.
+
+* Uncorrelated random effects vs. all correlated random effects
+```{r Test m2.mixed-m2.mixed2}
+lrtest(m2.mixed, m2.mixed2)
+```
+Here larger model is significantly better to explain consumer preferences. It's not reasonable to assume that the preferences for specific levels are not associated with preferences for other levels. So, we choose the model with all correlated random effects.
+
+* Partially correlated random effects vs. all correlated random effects
+
+```{r Test m2.mixed3-m2.mixed2}
+lrtest(m2.mixed3, m2.mixed2)
+```
+Finally, we compare the model with partially correlated random effects and the one with all correlated random effects. Also in this case the latter is significantly better than the former. So we will simulate the preference shares using the model with all correlated random effects.
+
+
+## Simulate Preference Shares
+Preference shares based on the mixed MNL model are substantially the same as those we computed in the previous paragraph. The main difference is the way in which they are computed: differently from the fixed effects MNL model, indeed, here preference shares are computed for each respondent and then averaged.
+
+```{r Simulate preference shares - mixed model}
+set.seed(5973)
+predict.mixed.mnl(m2.mixed2, data=new.data)
+```
+These preference shares predictions are not particularly different from those computed in the model which do not deal with heterogeneity.
+But it is worth noting that here the 4th profile (no. 429) has a preference share almost 9 percentage points higher than in the previous model. It is probably due to the fact that the variable `Indipendenti` is here more significant than before and it is recognized as a niche and thus assigned a higher weight. This considerably affect the comparisons between the other preference shares since their results are smaller compared to those computed under MNL model. But overall, the ranking of preferences does not change.
+
+
+# Individual-level predictors
+We analyse the relationship between the individual part worths and the individual level variables.
+As mentioned above, our survey asked respondents for their age, gender and job. The individual level variables considered will be:
+
+* `tipo_filmAnimazione`
+* `tipo_filmIndipendenti`
+* `qual_cine3D`
+* `qual_cineIMAX`
+* `qual_stream4K`
+* `prezzo60`
+* `prezzo80`
+
+We selected these variables as they are the ones where the m2.mixed2 model detected niches. However, we have to remember that `qual_filmIndependenti`, `qual_cineIMAX` and `qual_stream4K` are not significant, so we have to be careful to assess whether there really is a niche.
+
+In the following analysis we plot for each variable the Histograms and the Boxplots. Due to the lack of observations in some categories we make a t.test only with the variables `Lavoratore Dipendente`,`Studente`, `18-21`, `22-25` and for the genre.
+
+We start by extracting the individual part worth from the m2.mixed2, which is the mixed model with correlation among variables, which is also the one that better assessed the presence of some niches.
+```{r Setting the parameters and the datasets}
+PW.ind <- fitted(m2.mixed2, type = "parameters")
+(individual.data <- unique(df[,c(1,11,12,13)]))
+names(PW.ind)[1] <- "resp.id"
+PW.ind <- merge(PW.ind, individual.data, by="resp.id")
+head(PW.ind)
+
+età_lav_stu <- PW.ind %>% filter(età %in% c("18-21","22-25"))
+professione_lav_stu <- PW.ind %>% filter(professione %in% c("Lavoratore Dipendente","Studente"))
+genere_lav_stu <- PW.ind %>% filter(genere %in% c("M","F"))
+```
+We start our analysis with the movie type `Animazione`, which was a significant variable in the mixed model which considers the correlations and presented heterogeneity in the distribution.
+```{r Individual-level Animazione}
+set.seed(2608)
+
+histogram(~ tipo_filmAnimazione | professione, data=PW.ind)
+histogram(~ tipo_filmAnimazione | età, data=PW.ind)
+histogram(~ tipo_filmAnimazione | genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=tipo_filmAnimazione)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "Animazione") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=tipo_filmAnimazione)) + geom_boxplot() + 
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=tipo_filmAnimazione)) + geom_boxplot() + 
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp+ plot_annotation(
+  title = 'Film Animazione',theme = theme(plot.title = element_text(hjust = 0.5)))
+
+#by(PW.ind$ tipo_filmAnimazione, PW.ind$professione, mean)
+t.test(tipo_filmAnimazione ~ professione, data=professione_lav_stu)
+t.test(tipo_filmAnimazione ~ età, data=età_lav_stu)
+t.test(tipo_filmAnimazione ~ genere, data=genere_lav_stu)
+```
+Overall, for the variable `tipo_filmAnimazione` we recognize that it is not possible to explain the heterogeneity given the job, age or gender. From the distribution we recognize there may be some difference in the variable `professione`, between the levels `Lavoratore Dipendente` and `Studente`. However, the t.test does not assess any true difference among the two groups.
+Another difference seems to be present in the distribution of the age in the ranges `18-21`, `22-25`. In this case the p-value is almost significant **0.08581**. Perhaps there really is a difference in those two age ranges,but we would probably need more observations to really assess it.
+```{r Individual level - Indipendenti}
+set.seed(2608)
+
+histogram(~  tipo_filmIndipendenti | professione, data=PW.ind)
+histogram(~  tipo_filmIndipendenti | età, data=PW.ind)
+histogram(~  tipo_filmIndipendenti | genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=tipo_filmIndipendenti)) + geom_boxplot() + 
+  labs(title = "", subtitle = "",
+       x = "", y = "Indipendenti") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=tipo_filmIndipendenti)) + geom_boxplot() + 
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=tipo_filmIndipendenti)) + geom_boxplot() + 
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp+ plot_annotation(
+  title = 'Film Indipendenti',theme = theme(plot.title = element_text(hjust = 0.5)))
+
+#by(PW.ind$ tipo_filmIndipendenti, PW.ind$professione, mean)
+t.test(tipo_filmIndipendenti ~ professione, data=professione_lav_stu)
+t.test(tipo_filmIndipendenti ~ età, data=età_lav_stu)
+t.test(tipo_filmIndipendenti ~ genere, data=genere_lav_stu)
+```
+In this analysis of the type of film `Independenti`, there is no particular evidence. The t.test discarded any possible difference between the groups moreover their p-values are quite high.
+```{r Ind. lev - 3D}
+set.seed(2608)
+
+histogram(~ qual_cine3D| professione, data=PW.ind)
+histogram(~ qual_cine3D| età, data=PW.ind)
+histogram(~ qual_cine3D| genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=qual_cine3D)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "3D") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=qual_cine3D)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=qual_cine3D)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp + plot_annotation(title = 'Film 3D', theme = theme(plot.title = element_text(hjust = 0.5)))
+
+#by(PW.ind$ qual_cine3D, PW.ind$professione, mean)
+t.test(qual_cine3D ~ professione, data=professione_lav_stu)
+t.test(qual_cine3D ~ età, data=età_lav_stu)
+t.test(qual_cine3D ~ genere, data=genere_lav_stu)
+```
+The variable `qual_cine3D` is the one we recognise as most likely to have a niche. Nevertheless, we cannot assess whether there is a particular group that explains it. The most interesting result comes from the variable `age`:  the intervals `18-21` and `22-25` have a distribution and boxplot that seem to reveal some difference between the groups. In fact, the t.test reveals a very low p-value *0.07735*, but not small enough to be significant.
+The boxplots seem to indicate other differences between the age groups, but the observations are not enough to proceed with further analysis or provide hypotheses about them.
+```{r Ind. lev - IMAX}
+set.seed(2608)
+
+histogram(~ qual_cineIMAX| professione, data=PW.ind)
+histogram(~ qual_cineIMAX| età, data=PW.ind)
+histogram(~ qual_cineIMAX| genere, data=PW.ind)
+
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=qual_cineIMAX)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "IMAX") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=qual_cineIMAX)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=qual_cineIMAX)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp + plot_annotation(title = 'Film IMAX', theme = theme(plot.title = element_text(hjust = 0.5)))
+
+by(PW.ind$ qual_cine3D, PW.ind$professione, mean)
+t.test(qual_cineIMAX ~ professione, data=professione_lav_stu)
+t.test(qual_cineIMAX ~ età, data=età_lav_stu)
+t.test(qual_cineIMAX ~ genere, data=genere_lav_stu)
+```
+As in the previous analysis, the distributions and boxplots point toward a difference in the age ranges of 18-21 and 22-25. However, the t.test reveals there is no difference, the p-value is quite high *0.2603*. Moreover, the variable `IMAX` was not significant in the m2.mixed2 model. 
+```{r Ind. lev - 4K}
+set.seed(2608)
+
+histogram(~ qual_stream4K | professione, data=PW.ind)
+histogram(~ qual_stream4K | età, data=PW.ind)
+histogram(~ qual_stream4K | genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=qual_stream4K)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "4K") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=qual_stream4K)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=qual_stream4K)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp + plot_annotation(title = 'Film 4K', theme = theme(plot.title = element_text(hjust = 0.5)))
+
+by(PW.ind$ qual_cine3D, PW.ind$professione, mean)
+t.test(qual_stream4K ~ professione, data=professione_lav_stu)
+t.test(qual_stream4K ~ età, data=età_lav_stu)
+t.test(qual_stream4K ~ genere, data=genere_lav_stu)
+```
+In this analysis on the 4k quality of the streaming, there is an interesting difference among the genres observed in the distributions and boxplots. However, the t.test does not assess a difference among the groups, with a p-value of *0.129*.
+```{r Ind. lev - prezzo60}
+histogram(~ prezzo60 | professione, data=PW.ind)
+histogram(~ prezzo60 | età, data=PW.ind)
+histogram(~ prezzo60 | genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=prezzo60)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "prezzo60") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=prezzo60)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=prezzo60)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp + plot_annotation(title = 'Film 60', theme = theme(plot.title = element_text(hjust = 0.5)))
+
+by(PW.ind$ prezzo60, PW.ind$professione, mean)
+t.test(prezzo60 ~ professione, data=professione_lav_stu)
+t.test(prezzo60 ~ età, data=età_lav_stu)
+t.test(prezzo60 ~ genere, data=genere_lav_stu)
+```
+
+```{r Ind. lev - prezzo80}
+histogram(~ prezzo80 | professione, data=PW.ind)
+histogram(~ prezzo80 | età, data=PW.ind)
+histogram(~ prezzo80 | genere, data=PW.ind)
+
+p1 <- ggplot(PW.ind, aes(x=professione, y=prezzo80)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "prezzo60") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p2 <- ggplot(PW.ind, aes(x=età, y=prezzo80)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+p3 <- ggplot(PW.ind, aes(x=genere, y=prezzo80)) + geom_boxplot() +
+  labs(title = "", subtitle = "",
+       x = "", y = "") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5), # center title
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        text = element_text(family = "sans")) # font
+
+pp <- p1+p2+p3
+pp + plot_annotation(title = 'Film 80', theme = theme(plot.title = element_text(hjust = 0.5)))
+
+by(PW.ind$ prezzo80, PW.ind$professione, mean)
+t.test(prezzo80 ~ professione, data=professione_lav_stu)
+t.test(prezzo80 ~ età, data=età_lav_stu)
+t.test(prezzo80 ~ genere, data=genere_lav_stu)
+```
+The little niche found for both the price levels is not explained by these individual variables: the distributions and boxplots do not reveal any particular difference and the t.test confirms this observation.
+
+Overall, from the above analysis we cannot assess that any of the possible niches found were related to the individual variables we got. The cases where it seemed to be a difference were the ones related to the `età`, as for the variable movie type `Animazione`, where we can hypothesize there may be more interest among the `18-21` generation for this kind of movie respect to the others. We could state the same hypothesis for the variable `qual_cine3D`, since the p-value among the two age range was low, but in this case specifically we are quite skeptical about the result given our a-priori beliefs. 
+In our analysis we could not make a t.test among all the difference age ranges, due to lack of observations, but it would probably be a variable of interest with more data.
+While for the variable `Posizione` there was any significant difference, for the variable `Genere` we almost found it to be significant to express the preference for the `qual_stream4K`.
+
+
+# Conclusion
+This project is based on the research question "Which kind of pass can revive the cinema sector in this pandemic period?".
+To answer this question, we analysed the responses to the survey and displayed some interesting results.
+
+A first half of the answer comes from the model that did not consider heterogeneity (m1). Here, we calculated **willingness-to-pay** and **preference shares** to see how different levels of attributes were valued. The analysis shows that the respondents favored *less expensive* cinema passes, held in the *evening (21-24)* and with *commercial movies*. On the other hand, they did **not** give particular weight to the *quality of the video* offered and the *number of films* in the pass, although in the latter it is evident that they preferred cinema passes with more movies available. We have justified the low significance of the variables relating to the quality of the video by saying that it is likely that the respondents have not grasped the benefits of a higher quality, thus considering the other variables as more influential on the final choice. Already from these data we noticed a strange tendency to devalue cinema passes with **3D** movies, an aspect that we investigated while examining the respondents' heterogeneity.
+
+The next step of the analysis has been studying the heterogeneity present in the different attribute levels. We used the mixed MNL without and with correlations between the variables. As we expected, the effects of heterogeneity were higher in the latter. Since the latter was the model that best modeled our data, we chose it to identify differences in the choices made.
+
+The second half of the answer was found in this part, since we were able to identify attribute levels that might contain consumer niches. In particular, the levels related to *price*, *video quality* and *type of film* attracted our attention. We did not overestimate the variables referred to *independent* movies, with video quality of cinema "*IMAX*" and quality of streaming "*4k*" as they are not significant in the model. On the other hand, the `3D` and `Animation` levels are noteworthy: they present significant and negative coefficients and an interesting level of heterogeneity. From the analysis of the random coefficients, we identify a niche in both of this attribute level. For the level `3D` we are uncertain if this outcome is related to a niche of respondents that actually prefer this cinema feature, or is a niche given by the choices made due to the survey configuration. While for the level `Animation` we can assess there is a small group of respondents that like this movie type.
+
+We tried to assess whether the heterogeneity of consumers could be explained by their individual characteristics, but we did not find any significant result. The variable `età` was the only one that has a low p-value, but still not significant. It may be possible that with more observations we could get better results.
+
+Afterwards, through the correlation plot we got a clearer idea of the relationship between the different variables. We noticed that the significantly correlated variables have positive coefficients with a range between 0.5 and 0.9. The analysis reveals that not only the levels of the same attribute are correlated, but also those belonging to different attributes. Movie type `Indipendenti` is highly correlated with the 7 number of movies, while movie `Animazione` is highly negatively correlated with 10 number of movies. In the case of independent movies, our hypothesis is that people preferred to select the wished type of movie even if they would choose less movies. In the case of animation movies, we may assess that no one really like seeing them to the extent to have a 10 movies pass.
+Other relevant correlations may be the `n_film10` with `h15-19`, which may indicate that even though the afternoon time is not really appreciate, it is selected if a higher number of movies is offered.
+
+Given these results we foster a kind of pass that goes towards the needs of the respondents. We have understood that the best average pass according to the single levels is the one that combines a high number of movie, a Commercial type and evening shows. However, it is not the only information that we have extracted. There are some respondents that actually would go to afternoon shows to watch an *indipendent* movie, even though the price is not the lowest and the number of movies is restrained. There is also a small niche of respondents that would love to watch some *animation* movies, they do not want a pass that has a lot of tickets. Quality seems to take second place in overall preference, so a cinema could manage to emphasise film content over high quality in the theater. Then, even if this analysis did not highlight important individual variables, age seems to be an element to be considered in the creation of the pass. Further research could be done to evaluate this association, however we could try to make a suggestion and suggest differentiating passes by age.
+
+
+
